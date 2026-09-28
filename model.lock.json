@@ -1,0 +1,15 @@
+{
+  "model_id": "qwen3-8-27b-exl3-sc-5-00bpw-h6",
+  "source": "turboderp/Qwen3.8-27B-exl3",
+  "revision": "dfe2f4fd71bf9a1994051d4d47e6460fa96dd723",
+  "quantization": "5.00bpw H6",
+  "tokenizer_source": "turboderp/Qwen3.8-27B-exl3",
+  "tokenizer_revision": "dfe2f4fd71bf9a1994051d4d47e6460fa96dd723",
+  "reference_template_source": "Qwen/Qwen3.8-27B",
+  "reference_template_revision": "1d4bf0f2ff6012fd82039f2fa52739d0dd7c60c0",
+  "weight_shards_sha256": {
+    "model-00001-of-00003.safetensors": "7985b50a6bf4422b340d231dc430741ddf4097fc781979bde57d0233d6ba4a73",
+    "model-00002-of-00003.safetensors": "3c1a6cb0ae39920c4d36a93237224959c3e0900223c01b9fd452337218f36700",
+    "model-00003-of-00003.safetensors": "b1adb88203c20f01c9a5006ce2b9ee377e4254dd842073978c3f29b5fbd6126e"
+  }
+}

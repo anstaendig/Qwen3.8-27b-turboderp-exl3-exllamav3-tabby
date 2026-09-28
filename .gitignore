@@ -1,0 +1,30 @@
+# Local environment and runtime state
+.env
+.env.*
+.venv/
+.venv-*/
+venv/
+.cache/
+.state/
+logs/
+models/
+*.log
+
+# Python / tooling caches
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Editors and OS files
+.DS_Store
+.idea/
+.vscode/
+
+# Secrets (TabbyAPI writes generated keys here when auth is enabled)
+api_tokens.yml
+
+# Local agent instructions (private)
+AGENTS.md
+CLAUDE.md

@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tabby_dir="$root_dir/tabbyAPI"
+patch_file="$root_dir/patches/tabbyapi-ban-eos.patch"
+upstream_commit=f07131cd8fe34e449fe87cdd3a066b52b96d3cac
+
+if [[ "$(git -C "$tabby_dir" rev-parse HEAD)" != "$upstream_commit" ]]; then
+  echo "TabbyAPI must be checked out at $upstream_commit." >&2
+  exit 1
+fi
+if git -C "$tabby_dir" apply --reverse --check "$patch_file" 2>/dev/null; then
+  echo "EOS stop-condition fix is already applied."
+  exit 0
+fi
+if ! git -C "$tabby_dir" apply --reverse --check "$root_dir/patches/tabbyapi-metrics.patch" 2>/dev/null; then
+  echo "Apply the maintained metrics patch first." >&2
+  exit 1
+fi
+git -C "$tabby_dir" apply --check "$patch_file"
+git -C "$tabby_dir" apply "$patch_file"
+echo "Applied EOS stop-condition fix."

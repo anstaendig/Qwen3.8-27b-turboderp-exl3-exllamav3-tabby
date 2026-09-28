@@ -1,0 +1,155 @@
+{
+  "source": "turboderp/Qwen3.8-27B-exl3",
+  "models": [
+    {
+      "branch": "SC_6.00bpw_H6_V6",
+      "revision": "60d005a257b39ecb25e4ba23c1dd29df877d5c69",
+      "label": "SC 6.00 bpw H6 V6",
+      "directory": "qwen3-8-27b-exl3-sc-6-00bpw-h6-v6"
+    },
+    {
+      "branch": "SC_5.00bpw_H6_V6",
+      "revision": "f33f26d929e2b20ef21361145d582f5239e3831f",
+      "label": "SC 5.00 bpw H6 V6",
+      "directory": "qwen3-8-27b-exl3-sc-5-00bpw-h6-v6"
+    },
+    {
+      "branch": "SC_4.00bpw_H5_V6",
+      "revision": "516bf129059031c6da9416768ea6b7a1be00a8fc",
+      "label": "SC 4.00 bpw H5 V6",
+      "directory": "qwen3-8-27b-exl3-sc-4-00bpw-h5-v6"
+    },
+    {
+      "branch": "SC_3.00bpw_H4_V4",
+      "revision": "004a887127d8304ca2d5475d3a3c41f1761fdd27",
+      "label": "SC 3.00 bpw H4 V4",
+      "directory": "qwen3-8-27b-exl3-sc-3-00bpw-h4-v4"
+    },
+    {
+      "branch": "SC_2.20bpw_H3_V3",
+      "revision": "25019f1663e0e0bcfc363609f1dbabd5604b04e4",
+      "label": "SC 2.20 bpw H3 V3",
+      "directory": "qwen3-8-27b-exl3-sc-2-20bpw-h3-v3"
+    },
+    {
+      "branch": "SC_2.00bpw_H3_V3",
+      "revision": "e5e1f4b37c77641e465e24adf5f44d01bdd48de2",
+      "label": "SC 2.00 bpw H3 V3",
+      "directory": "qwen3-8-27b-exl3-sc-2-00bpw-h3-v3"
+    },
+    {
+      "branch": "SC_1.80bpw_H3_V3",
+      "revision": "4e2f1012300ce998f06c169c921c5b3ff618b7bb",
+      "label": "SC 1.80 bpw H3 V3",
+      "directory": "qwen3-8-27b-exl3-sc-1-80bpw-h3-v3"
+    },
+    {
+      "branch": "SC_1.60bpw_H3_V3",
+      "revision": "1ae657251868b6e97c4d4bf3ff170a985f2e94f2",
+      "label": "SC 1.60 bpw H3 V3",
+      "directory": "qwen3-8-27b-exl3-sc-1-60bpw-h3-v3"
+    },
+    {
+      "branch": "SC_1.40bpw_H3_V3",
+      "revision": "574e1597633835bbadb3b840d54968dca5ab32cf",
+      "label": "SC 1.40 bpw H3 V3",
+      "directory": "qwen3-8-27b-exl3-sc-1-40bpw-h3-v3"
+    },
+    {
+      "branch": "SC_6.00bpw_H6",
+      "revision": "9e4c23cfb23697165b8e2f6da2a1df995f66353c",
+      "label": "SC 6.00 bpw H6",
+      "directory": "qwen3-8-27b-exl3-sc-6-00bpw-h6"
+    },
+    {
+      "branch": "SC_5.00bpw_H6",
+      "revision": "dfe2f4fd71bf9a1994051d4d47e6460fa96dd723",
+      "label": "SC 5.00 bpw H6",
+      "directory": "qwen3-8-27b-exl3-sc-5-00bpw-h6"
+    },
+    {
+      "branch": "SC_4.00bpw_H5",
+      "revision": "4acd9ad5af224ec9e8815a54d71a033f378a7e9d",
+      "label": "SC 4.00 bpw H5",
+      "directory": "qwen3-8-27b-exl3-sc-4-00bpw-h5"
+    },
+    {
+      "branch": "SC_3.00bpw_H4",
+      "revision": "86b95530f9d365d90dd24d01a997a8de0cdf6c55",
+      "label": "SC 3.00 bpw H4",
+      "directory": "qwen3-8-27b-exl3-sc-3-00bpw-h4"
+    },
+    {
+      "branch": "SC_2.20bpw_H3",
+      "revision": "d6e046dab920e06a6ff62887b5f1b5198e479805",
+      "label": "SC 2.20 bpw H3",
+      "directory": "qwen3-8-27b-exl3-sc-2-20bpw-h3"
+    },
+    {
+      "branch": "SC_2.00bpw_H3",
+      "revision": "d7e02d63dddd4e047a8d397acb22aeb2b0bedcec",
+      "label": "SC 2.00 bpw H3",
+      "directory": "qwen3-8-27b-exl3-sc-2-00bpw-h3"
+    },
+    {
+      "branch": "SC_1.80bpw_H3",
+      "revision": "05f46db93c65c0a5edbd463e5af51eabde01dde0",
+      "label": "SC 1.80 bpw H3",
+      "directory": "qwen3-8-27b-exl3-sc-1-80bpw-h3"
+    },
+    {
+      "branch": "SC_1.60bpw_H3",
+      "revision": "4aa1aedc36e895911312a1940a736f74a6ce218a",
+      "label": "SC 1.60 bpw H3",
+      "directory": "qwen3-8-27b-exl3-sc-1-60bpw-h3"
+    },
+    {
+      "branch": "SC_1.40bpw_H3",
+      "revision": "8b4f2c9b76dd706ae6da7df6919b17a0e61821b8",
+      "label": "SC 1.40 bpw H3",
+      "directory": "qwen3-8-27b-exl3-sc-1-40bpw-h3"
+    },
+    {
+      "branch": "6.00bpw",
+      "revision": "d32ba0bbd17de6bed8d5bbfb8c19f16f228f67ff",
+      "label": "6.00 bpw",
+      "directory": "qwen3-8-27b-exl3-6-00bpw"
+    },
+    {
+      "branch": "5.00bpw",
+      "revision": "a35e75a73baee51da709329d19294245cbeeb5d8",
+      "label": "5.00 bpw",
+      "directory": "qwen3-8-27b-exl3-5-00bpw"
+    },
+    {
+      "branch": "4.00bpw",
+      "revision": "113cf7ab958054860e43fb7f3063b1af19171095",
+      "label": "4.00 bpw",
+      "directory": "qwen3-8-27b-exl3-4-00bpw"
+    },
+    {
+      "branch": "3.50bpw",
+      "revision": "8351c54ef11a63e38bca978655086d7998b8a7f9",
+      "label": "3.50 bpw",
+      "directory": "qwen3-8-27b-exl3-3-50bpw"
+    },
+    {
+      "branch": "3.00bpw",
+      "revision": "6fe61ad620abfe97c5b49f9722c2bceeea4ccc28",
+      "label": "3.00 bpw",
+      "directory": "qwen3-8-27b-exl3-3-00bpw"
+    },
+    {
+      "branch": "2.50bpw",
+      "revision": "0cd1091272291d008e06976acb81e25946cdc767",
+      "label": "2.50 bpw",
+      "directory": "qwen3-8-27b-exl3-2-50bpw"
+    },
+    {
+      "branch": "2.00bpw",
+      "revision": "5fce94d8233690102891329ac3dfca626ece4807",
+      "label": "2.00 bpw",
+      "directory": "qwen3-8-27b-exl3-2-00bpw"
+    }
+  ]
+}

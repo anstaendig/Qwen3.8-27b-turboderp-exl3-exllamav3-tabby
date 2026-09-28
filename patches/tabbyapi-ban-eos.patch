@@ -1,0 +1,51 @@
+diff --git a/backends/exllamav3/model.py b/backends/exllamav3/model.py
+--- a/backends/exllamav3/model.py
++++ b/backends/exllamav3/model.py
+@@ -26,6 +26,7 @@
+ from backends.exllamav3.grammar import ExLlamaV3Grammar
+ 
+ from backends.exllamav3.sampler import ExllamaV3SamplerBuilder
++from backends.exllamav3.stop_conditions import build_stop_conditions
+ from backends.exllamav3.utils import exllama_supports_nccl
+ from backends.exllamav3.vision import clear_image_embedding_cache, image_embedding_cache
+ from common.concurrency import iterate_in_threadpool
+@@ -1597,21 +1598,17 @@
+         # ) and gen_settings.token_repetition_range == -1
+ 
+         prompts = [prompt]
+-        stop_conditions = params.stop
+         add_bos_token = unwrap(params.add_bos_token, self.hf_model.add_bos_token())
+         grammar_handler = ExLlamaV3Grammar()
+ 
+         # Get multimodal embeddings if present
+         mm_embeddings_content = mm_embeddings.content if mm_embeddings else []
+ 
+-        # Fetch EOS tokens from generation_config if they exist
++        # ban_eos_token must suppress both model and backend EOS stop IDs.
+         eos_tokens = self.hf_model.eos_tokens() or [self.tokenizer.eos_token_id]
+-
+-        stop_conditions += eos_tokens
+-
+-        # Include stop conditions deduced by backend tokenizer
+-        stop_conditions += self.config.eos_token_id_list
+-        stop_conditions = list(set(stop_conditions))
++        stop_conditions = build_stop_conditions(
++            params.stop, eos_tokens, self.config.eos_token_id_list, params.ban_eos_token
++        )
+ 
+         input_ids = [
+             self.tokenizer.encode(
+diff --git a/backends/exllamav3/stop_conditions.py b/backends/exllamav3/stop_conditions.py
+new file mode 100644
+--- /dev/null
++++ b/backends/exllamav3/stop_conditions.py
+@@ -0,0 +1,9 @@
++"""Build per-request ExLlamaV3 stop conditions without mutating sampler input."""
++
++
++def build_stop_conditions(user_stops, hf_eos_tokens, backend_eos_tokens, ban_eos_token):
++    stops = list(user_stops or [])
++    if not ban_eos_token:
++        stops.extend(hf_eos_tokens)
++        stops.extend(backend_eos_tokens)
++    return list(set(stops))

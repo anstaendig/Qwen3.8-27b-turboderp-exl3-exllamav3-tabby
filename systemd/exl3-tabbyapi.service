@@ -1,0 +1,16 @@
+[Unit]
+Description=Qwen3.8 27B EXL3 on TabbyAPI (OpenAI-compatible API + Prometheus metrics)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Qwen3.8-27b-turboderp-exl3-exllamav3-tabby/tabbyAPI
+ExecStart=%h/Qwen3.8-27b-turboderp-exl3-exllamav3-tabby/tabbyAPI/venv/bin/python main.py --config ../config.yml
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=60
+NoNewPrivileges=true
+
+[Install]
+WantedBy=default.target

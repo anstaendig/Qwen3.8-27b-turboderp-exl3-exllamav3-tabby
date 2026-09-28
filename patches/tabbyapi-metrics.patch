@@ -1,0 +1,566 @@
+diff --git a/backends/exllamav3/model.py b/backends/exllamav3/model.py
+index a377598..e1361d0 100644
+--- a/backends/exllamav3/model.py
++++ b/backends/exllamav3/model.py
+@@ -40,6 +40,7 @@ from common.hardware import hardware_supports_exllamav3
+ from common.health import HealthManager
+ from common.errors import ContextLengthExceededError, validate_context_requirements
+ from common.logger import xlogger
++from common.metrics import admit_job, enable_mtp, observe
+ from common.model_meta import read_model_meta
+ from common.multimodal import MultimodalEmbeddingWrapper
+ from common.networking import DisconnectHandler
+@@ -87,6 +88,25 @@ def _merge_stream_results(results: List[dict]) -> dict:
+     return merged
+ 
+ 
++def _observe_output_metrics(metrics_job, source_results: List[dict]) -> None:
++    """Count engine token IDs from each source chunk, before coalescing loses gaps."""
++    for source in source_results:
++        if not unwrap(source.get("text"), ""):
++            continue
++        token_ids = source.get("token_ids")
++        if token_ids is None:
++            observe(metrics_job, "missing_output_ids")
++            continue
++        try:
++            if isinstance(token_ids, tuple):
++                token_ids = token_ids[0]
++            count = token_ids.numel() if isinstance(token_ids, torch.Tensor) else len(token_ids)
++        except Exception:
++            observe(metrics_job, "missing_output_ids")
++        else:
++            observe(metrics_job, "output", count)
++
++
+ class ExllamaV3Container:
+     """Model container for the ExLlamaV3 backend."""
+ 
+@@ -102,6 +122,7 @@ class ExllamaV3Container:
+ 
+     # Optional features
+     use_draft_model: bool = False
++    mtp_enabled: bool = False
+     use_vision: bool = False
+ 
+     # HF Model instance
+@@ -257,6 +278,7 @@ class ExllamaV3Container:
+         self.use_draft_model = draft_mode == "mtp" or (
+             draft_mode == "model" and bool(draft_model_name)
+         )
++        self.mtp_enabled = draft_mode == "mtp"
+         self.ngram_match_min = (
+             unwrap(draft_args.get("ngram_match_min"), 2) if draft_mode == "ngram" else 0
+         )
+@@ -855,6 +877,11 @@ class ExllamaV3Container:
+ 
+             # Cleanup and update model load state
+             self.loaded = True
++            if self.mtp_enabled:
++                try:
++                    enable_mtp()
++                except Exception:
++                    xlogger.warning("Could not register MTP metric family")
+             xlogger.info(f"Model loaded in {time.perf_counter() - load_start:.1f} s")
+         finally:
+             self.load_lock.release()
+@@ -1709,13 +1736,39 @@ class ExllamaV3Container:
+             stop_on_loop=params.get_stop_on_loop(),
+             filters=grammar_handler.filters,
+         )
+-        self.active_job_ids[request_id] = job
+-        await disconnect_handler.add_cleanup_task(id(job), job.cancel, ())
+-        job_status = status_display.add_job(request_id, label, context_len)
++        # AsyncJob enqueues synchronously, so admission and the TTFT clock
++        # begin before cleanup registration or terminal status bookkeeping.
++        metrics_job = admit_job(context_len)
++        try:
++            self.active_job_ids[request_id] = job
++            await disconnect_handler.add_cleanup_task(id(job), job.cancel, ())
++            job_status = status_display.add_job(request_id, label, context_len)
++        except BaseException as ex:
++            # This job was already enqueued, even if setup never reaches the
++            # result loop below. Cancel the enqueued work and clear any partial
++            # registrations while preserving the original setup failure.
++            outcome = "cancelled" if isinstance(ex, (CancelledError, GeneratorExit)) else "error"
++            try:
++                if not job.cancelled:
++                    await job.cancel()
++            except BaseException:
++                pass
++            try:
++                disconnect_handler.cleanup_tasks.pop(id(job), None)
++            except BaseException:
++                pass
++            try:
++                if status_display.jobs.pop(request_id, None) is not None:
++                    status_display.refresh()
++            except BaseException:
++                pass
++            observe(metrics_job, "finish", outcome)
++            raise
+ 
+         generated_tokens = 0
+         full_response = ""
+         metrics_result = {}
++        outcome = "error"
+ 
+         # Get the generation status once it's ready
+         try:
+@@ -1725,8 +1778,10 @@ class ExllamaV3Container:
+                 stage = result.get("stage")
+                 if stage == "started":
+                     job_status.started(result.get("cached_tokens", 0))
++                    observe(metrics_job, "started")
+                 elif stage == "prefill":
+                     job_status.prefill(result.get("curr_progress", 0))
++                    observe(metrics_job, "prefill", result.get("curr_progress"))
+ 
+                 # The generator can produce several results per iteration
+                 # (speculative decoding), while this consumer may only get one
+@@ -1734,6 +1789,7 @@ class ExllamaV3Container:
+                 # downstream actually suspends. Merge everything already
+                 # queued so streaming keeps pace with generation instead of
+                 # backing up until the generator goes idle.
++                source_results = [result]
+                 if result.get("stage") == "streaming" and not result.get("eos"):
+                     span = [result]
+                     while not job.queue.empty():
+@@ -1748,6 +1804,7 @@ class ExllamaV3Container:
+                         span.append(nxt)
+                         if nxt.get("eos"):
+                             break
++                    source_results = span
+                     if len(span) > 1:
+                         result = _merge_stream_results(span)
+ 
+@@ -1790,11 +1847,18 @@ class ExllamaV3Container:
+                     if params.logprobs > 0:
+                         self.handle_logprobs(result, generation)
+ 
++                    observe(metrics_job, "first_output")
++                    # Retokenization above supports the existing response
++                    # contract, but it is not an exact engine token count.
++                    _observe_output_metrics(metrics_job, source_results)
++
+                     job_status.generated(generated_tokens)
+                     yield generation
+ 
+                 if result.get("eos"):
+                     xlogger.debug("EOS result received from generator", result)
++                    outcome = "completed"
++                    observe(metrics_job, "completed", result, self.mtp_enabled)
+                     finish_chunk = self.handle_finish_chunk(
+                         result, request_id, full_response, label
+                     )
+@@ -1806,11 +1870,19 @@ class ExllamaV3Container:
+                     yield finish_chunk
+                     break
+ 
++            # AsyncJob can stop its iterator normally after an external
++            # cancellation, without raising CancelledError in this consumer.
++            if outcome != "completed" and job.cancelled:
++                outcome = "cancelled"
++
+         except CancelledError:
++            outcome = "cancelled" if outcome != "completed" else outcome
+             if not job.cancelled:
+                 await job.cancel()
+ 
+         except Exception as ex:
++            if outcome != "completed":
++                outcome = "error"
+             await self._recover_from_generation_error(ex, job)
+ 
+             if isinstance(ex, AssertionError) and "cannot be enqueued" in str(ex):
+@@ -1819,7 +1891,12 @@ class ExllamaV3Container:
+                 ) from ex
+ 
+             raise ex
++        except GeneratorExit:
++            if outcome != "completed":
++                outcome = "cancelled"
++            raise
+         finally:
++            observe(metrics_job, "finish", outcome)
+             status_display.remove_job(request_id)
+ 
+             # Log generation options to console
+diff --git a/common/metrics.py b/common/metrics.py
+new file mode 100644
+index 0000000..44fd418
+--- /dev/null
++++ b/common/metrics.py
+@@ -0,0 +1,329 @@
++"""Process-local Prometheus observations for ExLlamaV3 generation jobs.
++
++The registry deliberately contains only TabbyAPI metrics. Job objects keep
++private accounting state; no request identity enters a metric label.
++"""
++
++import math
++import sys
++import time
++
++from prometheus_client import CollectorRegistry, Counter, Gauge, Histogram, generate_latest
++from prometheus_client.core import GaugeMetricFamily
++from prometheus_client.exposition import CONTENT_TYPE_LATEST
++
++
++REGISTRY = CollectorRegistry(auto_describe=True)
++
++_schema = Gauge(
++    "tabbyapi_metrics_schema_info",
++    "Version of the TabbyAPI metrics contract.",
++    ["version"],
++    registry=REGISTRY,
++)
++_schema.labels("1").set(1)
++
++_requests = Gauge(
++    "tabbyapi_requests_active",
++    "Admitted ExLlamaV3 generation jobs in each engine state.",
++    ["state"],
++    registry=REGISTRY,
++)
++for _state in ("queued", "prefill", "decode"):
++    _requests.labels(_state).set(0)
++
++_outcomes = Counter(
++    "tabbyapi_requests_total",
++    "Admitted ExLlamaV3 generation jobs finalized by outcome.",
++    ["outcome"],
++    registry=REGISTRY,
++)
++for _outcome in ("completed", "cancelled", "error"):
++    _outcomes.labels(_outcome)
++
++_prompt = Counter(
++    "tabbyapi_prompt_tokens_total",
++    "Observed ExLlamaV3 prompt token work by source.",
++    ["source"],
++    registry=REGISTRY,
++)
++for _source in ("computed", "cached"):
++    _prompt.labels(_source)
++
++_output = Counter(
++    "tabbyapi_output_tokens_total",
++    "Source token IDs accepted in nonempty output chunks.",
++    registry=REGISTRY,
++)
++
++_ttft = Histogram(
++    "tabbyapi_engine_time_to_first_token_seconds",
++    "Time from engine job admission to its first nonempty output chunk.",
++    buckets=(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300),
++    registry=REGISTRY,
++)
++_phases = Histogram(
++    "tabbyapi_engine_phase_duration_seconds",
++    "Engine-accounted duration for completed ExLlamaV3 jobs.",
++    ["phase"],
++    buckets=(
++        0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5,
++        5, 10, 30, 60, 120, 300, 600, 1200, 3600,
++    ),
++    registry=REGISTRY,
++)
++for _phase in ("queue", "prefill", "decode", "total"):
++    _phases.labels(_phase)
++
++_observation_errors = Counter(
++    "tabbyapi_metrics_observation_errors_total",
++    "Rejected or failed TabbyAPI metric observations.",
++    registry=REGISTRY,
++)
++
++_draft = None
++
++
++def enable_mtp() -> None:
++    """Register draft statistics only after a loaded backend enables MTP."""
++    global _draft
++    if _draft is not None:
++        return
++    _draft = Counter(
++        "tabbyapi_mtp_draft_tokens_total",
++        "Engine-reported MTP draft token outcomes on completed jobs.",
++        ["outcome"],
++        registry=REGISTRY,
++    )
++    for outcome in ("accepted", "rejected"):
++        _draft.labels(outcome)
++
++
++def _number(value):
++    if isinstance(value, bool) or not isinstance(value, (int, float)):
++        return None
++    try:
++        number = float(value)
++    except OverflowError:
++        return None
++    return number if math.isfinite(number) and number >= 0 else None
++
++
++def _token_count(value):
++    number = _number(value)
++    return number if number is not None and number.is_integer() else None
++
++
++def _bad_observation() -> None:
++    try:
++        _observation_errors.inc()
++    except Exception:
++        pass
++
++
++def admit_job(prompt_tokens: int):
++    """Create an observer without making instrumentation part of generation success."""
++    try:
++        return JobMetrics(prompt_tokens)
++    except Exception:
++        _bad_observation()
++        return None
++
++
++def observe(job, method: str, *args, **kwargs) -> None:
++    """Keep an unexpected instrumentation fault out of the inference path."""
++    if job is None:
++        return
++    try:
++        getattr(job, method)(*args, **kwargs)
++    except Exception:
++        _bad_observation()
++
++
++class _LiveCollector:
++    """Read a current model/cache snapshot without storing scrape-time values."""
++
++    def describe(self):
++        yield GaugeMetricFamily("tabbyapi_model_loaded", "EXL3 model loaded state.")
++        for name, help_text in zip(
++            (
++                "tabbyapi_kv_cache_capacity_tokens",
++                "tabbyapi_kv_cache_used_tokens",
++                "tabbyapi_kv_cache_reusable_tokens",
++            ),
++            (
++                "Logical EXL3 KV cache capacity in tokens.",
++                "Logical EXL3 KV cache tokens currently used.",
++                "Logical EXL3 KV cache tokens available for reuse.",
++            ),
++        ):
++            yield GaugeMetricFamily(name, help_text)
++
++    def collect(self):
++        model_module = sys.modules.get("common.model")
++        container = getattr(model_module, "container", None)
++        loaded = bool(
++            container is not None
++            and getattr(container, "loaded", False)
++            and getattr(container, "model", None) is not None
++        )
++        model_metric = GaugeMetricFamily("tabbyapi_model_loaded", "EXL3 model loaded state.")
++        model_metric.add_metric([], int(loaded))
++        yield model_metric
++
++        if not loaded:
++            return
++        generator = getattr(getattr(container, "generator", None), "generator", None)
++        if generator is None or not hasattr(generator, "get_cache_stats"):
++            return
++        try:
++            stats = generator.get_cache_stats()
++            values = (
++                _number(stats["max_tokens"]),
++                _number(stats["used_tokens"]),
++                _number(stats["cached_tokens"]),
++            )
++            if any(value is None for value in values):
++                return
++        except Exception:
++            return
++
++        for name, help_text, value in zip(
++            (
++                "tabbyapi_kv_cache_capacity_tokens",
++                "tabbyapi_kv_cache_used_tokens",
++                "tabbyapi_kv_cache_reusable_tokens",
++            ),
++            (
++                "Logical EXL3 KV cache capacity in tokens.",
++                "Logical EXL3 KV cache tokens currently used.",
++                "Logical EXL3 KV cache tokens available for reuse."),
++            values,
++        ):
++            metric = GaugeMetricFamily(name, help_text)
++            metric.add_metric([], value)
++            yield metric
++
++
++REGISTRY.register(_LiveCollector())
++
++
++def exposition() -> bytes:
++    """Return Prometheus text without resetting or caching measurements."""
++    return generate_latest(REGISTRY)
++
++
++class JobMetrics:
++    """Exactly-once accounting for one admitted engine job."""
++
++    def __init__(self, prompt_tokens: int):
++        self.prompt_tokens = _token_count(prompt_tokens)
++        self.started_at = time.perf_counter()
++        self.state = "queued"
++        self.closed = False
++        self.progress = 0.0
++        self._first_output_seen = False
++        self.eos_observed = False
++        _requests.labels("queued").inc()
++        if self.prompt_tokens is None:
++            _bad_observation()
++
++    def _move(self, state: str) -> None:
++        if self.closed or self.state == state:
++            return
++        _requests.labels(self.state).dec()
++        _requests.labels(state).inc()
++        self.state = state
++
++    def started(self, _cached_tokens=None) -> None:
++        if self.closed:
++            return
++        self._move("prefill")
++        # The pinned engine's started event has no cached-token field. Its
++        # final EOS result is the first authoritative source split.
++
++    def prefill(self, progress) -> None:
++        if self.closed:
++            return
++        self._move("prefill")
++        value = _token_count(progress)
++        if value is None or self.prompt_tokens is None:
++            _bad_observation()
++            return
++        # Progress is advisory and can advance beyond the admitted prompt
++        # length near the end of a long prefill. EOS owns token accounting.
++        self.progress = max(self.progress, min(value, self.prompt_tokens))
++
++    def first_output(self) -> None:
++        if self.closed:
++            return
++        if self._first_output_seen:
++            return
++        self._first_output_seen = True
++        self._move("decode")
++        _ttft.observe(time.perf_counter() - self.started_at)
++
++    def output(self, token_count: int) -> None:
++        if self.closed:
++            return
++        if not isinstance(token_count, int) or token_count <= 0:
++            _bad_observation()
++            return
++        _output.inc(token_count)
++
++    def missing_output_ids(self) -> None:
++        if not self.closed:
++            _bad_observation()
++
++    def completed(self, result: dict, mtp_enabled: bool = False) -> None:
++        """Reconcile prompt work and record raw engine timings on successful EOS."""
++        if self.closed or self.eos_observed:
++            return
++        self.eos_observed = True
++        prompt = _token_count(result.get("prompt_tokens"))
++        cached = _token_count(result.get("cached_tokens"))
++        if (
++            prompt is not None
++            and cached is not None
++            and cached <= prompt
++            and (self.prompt_tokens is None or prompt == self.prompt_tokens)
++        ):
++            # Only EOS reports the engine's cached-token count. Intermediate
++            # progress includes reused KV positions and cannot be split safely.
++            _prompt.labels("cached").inc(cached)
++            _prompt.labels("computed").inc(prompt - cached)
++        else:
++            _bad_observation()
++
++        timings = tuple(_number(result.get(key)) for key in (
++            "time_enqueued", "time_prefill", "time_generate"
++        ))
++        if all(value is not None for value in timings):
++            total = sum(timings)
++            if math.isfinite(total):
++                for phase, value in zip(("queue", "prefill", "decode"), timings):
++                    _phases.labels(phase).observe(value)
++                _phases.labels("total").observe(total)
++            else:
++                _bad_observation()
++        else:
++            _bad_observation()
++
++        if mtp_enabled and _draft is not None:
++            accepted = _token_count(result.get("accepted_draft_tokens"))
++            rejected = _token_count(result.get("rejected_draft_tokens"))
++            if accepted is not None and rejected is not None:
++                _draft.labels("accepted").inc(accepted)
++                _draft.labels("rejected").inc(rejected)
++            else:
++                _bad_observation()
++
++    def finish(self, outcome: str) -> None:
++        if self.closed:
++            return
++        if outcome not in ("completed", "cancelled", "error"):
++            _bad_observation()
++            outcome = "error"
++        self.closed = True
++        _requests.labels(self.state).dec()
++        _outcomes.labels(outcome).inc()
+diff --git a/endpoints/server.py b/endpoints/server.py
+index 8d4cf9d..569e059 100644
+--- a/endpoints/server.py
++++ b/endpoints/server.py
+@@ -1,12 +1,14 @@
+ import asyncio
+ import uvicorn
+-from fastapi import FastAPI
++from fastapi import Depends, FastAPI, Response
+ from fastapi.middleware.cors import CORSMiddleware
+ from loguru import logger
+ from typing import Optional
+ 
+ from common import signals
++from common.auth import check_api_key
+ from common.logger import UVICORN_LOG_CONFIG
++from common.metrics import CONTENT_TYPE_LATEST, exposition
+ from common.errors import ContextLengthHTTPException, context_length_exception_handler
+ from common.networking import get_global_depends
+ from common.tabby_config import config
+@@ -71,6 +73,10 @@ def setup_app(host: Optional[str] = None, port: Optional[int] = None):
+     # Include core API request paths
+     app.include_router(CoreRouter)
+ 
++    @app.get("/metrics", include_in_schema=False, dependencies=[Depends(check_api_key)])
++    async def metrics() -> Response:
++        return Response(content=exposition(), media_type=CONTENT_TYPE_LATEST)
++
+     return app
+ 
+ 
+diff --git a/pyproject.toml b/pyproject.toml
+index 7421867..c2ecd96 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -35,6 +35,7 @@ dependencies = [
+     "httptools >= 0.5.0",
+     "pillow",
+     "requests",
++    "prometheus-client == 0.26.0",
+ 
+     # Improved asyncio loops
+     "uvloop ; platform_system == 'Linux' and platform_machine == 'x86_64'",
