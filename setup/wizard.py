@@ -30,7 +30,7 @@ DIRECTORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 KEY = re.compile(r"^  ([A-Za-z_][A-Za-z0-9_]*):(?:[ \t]+(.*?))?[ \t]*$")
 SECTION = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):[ \t]*$")
-UPSTREAM = "f07131cd8fe34e449fe87cdd3a066b52b96d3cac"
+UPSTREAM = "a3fed43efae3b18ec6181618d6a4a66153a9d14e"
 
 
 def load_catalog(path: Path) -> dict:
@@ -269,6 +269,7 @@ def install(root: Path, *, source: str, entry: dict, model_dir: Path, existing_l
         raise ValueError(f"TabbyAPI must be pinned at {UPSTREAM}; found {head}")
     _run(runner, [str(root / "scripts" / "apply-metrics")], cwd=root)
     _run(runner, [str(root / "scripts" / "apply-ban-eos")], cwd=root)
+    _run(runner, [str(root / "scripts" / "apply-thinking")], cwd=root)
     _run(runner, ["uv", "python", "install", "3.12.13"], cwd=root)
     venv = submodule / "venv"
     python = venv / "bin" / "python"
@@ -280,9 +281,9 @@ def install(root: Path, *, source: str, entry: dict, model_dir: Path, existing_l
             raise ValueError(f"Existing environment has incompatible Python: {version}")
     else:
         _run(runner, ["uv", "venv", str(venv), "-p", "3.12.13"], cwd=root)
-    _run(runner, ["uv", "pip", "install", "--python", str(python), "-e", f"{submodule}[cu13]"], cwd=root)
+    _run(runner, ["uv", "pip", "sync", "--python", str(python), "--require-hashes", "--only-binary", ":all:", str(root / "requirements/cu13-python312.lock")], cwd=root)
     marker.write_text(json.dumps({"source": source, "revision": entry["revision"], "complete": False}, indent=2) + "\n")
-    _run(runner, ["uv", "tool", "run", "--from", "huggingface_hub==1.2.3", "hf", "download", source, "--revision", entry["revision"], "--local-dir", str(target)], cwd=root)
+    _run(runner, [str(venv / "bin" / "hf"), "download", source, "--revision", entry["revision"], "--local-dir", str(target)], cwd=root)
     marker.write_text(json.dumps({"source": source, "revision": entry["revision"], "complete": True}, indent=2) + "\n")
 
 

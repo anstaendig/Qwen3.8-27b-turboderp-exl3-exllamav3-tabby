@@ -313,7 +313,8 @@ def test_full_install_uses_pinned_commands_and_never_starts_server(sandbox, tmp_
     assert [str(sandbox / "scripts/apply-metrics")] in argv
     assert [str(sandbox / "scripts/apply-ban-eos")] in argv
     assert ["uv", "python", "install", "3.12.13"] in argv
-    assert any(command[:3] == ["uv", "pip", "install"] and f"{sandbox / 'tabbyAPI'}[cu13]" in command for command in argv)
+    assert [str(sandbox / "scripts/apply-thinking")] in argv
+    assert ["uv", "pip", "sync", "--python", str(sandbox / "tabbyAPI/venv/bin/python"), "--require-hashes", "--only-binary", ":all:", str(sandbox / "requirements/cu13-python312.lock")] in argv
     downloads = [command for command in argv if "download" in command]
     assert len(downloads) == 1
     assert ["--revision", selected["revision"]] == downloads[0][downloads[0].index("--revision"):downloads[0].index("--revision") + 2]

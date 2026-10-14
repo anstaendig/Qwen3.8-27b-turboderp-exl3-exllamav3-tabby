@@ -1,6 +1,7 @@
 """CPU-only acceptance tests for the public Prometheus job metrics contract."""
 
 import ast
+import asyncio
 import importlib.util
 import math
 import sys
@@ -14,6 +15,48 @@ from prometheus_client.parser import text_string_to_metric_families
 
 METRICS_PATH = Path(__file__).resolve().parents[1] / "tabbyAPI/common/metrics.py"
 BACKEND_PATH = Path(__file__).resolve().parents[1] / "tabbyAPI/backends/exllamav3/model.py"
+
+
+@pytest.mark.parametrize("failure", [RuntimeError("registration failed"), asyncio.CancelledError()])
+def test_admitted_job_registration_failure_cleans_new_phase_state(metrics, failure):
+    module, _ = metrics
+    tree = ast.parse(BACKEND_PATH.read_text())
+    method = next(n for n in ast.walk(tree) if isinstance(n, ast.AsyncFunctionDef) and n.name == "generate_gen")
+    start = next(i for i, n in enumerate(method.body)
+                 if isinstance(n, ast.Assign) and isinstance(n.targets[0], ast.Name)
+                 and n.targets[0].id == "metrics_job")
+    body = method.body[start:start + 2]
+    assert isinstance(body[1], ast.Try)
+    function = ast.AsyncFunctionDef(name="register", args=ast.arguments(posonlyargs=[], args=[],
+                                    kwonlyargs=[], kw_defaults=[], defaults=[]), body=body,
+                                    decorator_list=[])
+    class Job:
+        cancelled = False
+        async def cancel(self):
+            self.cancelled = True
+    job = Job()
+    async def add_cleanup_task(key, callback, args):
+        disconnect.cleanup_tasks[key] = (callback, args)
+    def fail_status(*args):
+        status.jobs["request"] = object()
+        raise failure
+    disconnect = types.SimpleNamespace(cleanup_tasks={}, add_cleanup_task=add_cleanup_task)
+    status = types.SimpleNamespace(jobs={}, add_job=fail_status, refresh=lambda: None)
+    container = types.SimpleNamespace(active_job_ids={}, job_phases={})
+    namespace = dict(admit_job=module.admit_job, observe=module.observe, self=container,
+                     job=job, phases=types.SimpleNamespace(job=None), request_id="request",
+                     context_len=100, label="test", disconnect_handler=disconnect,
+                     status_display=status, CancelledError=asyncio.CancelledError)
+    exec(compile(ast.fix_missing_locations(ast.Module(body=[function], type_ignores=[])),
+                 "backend-registration", "exec"), namespace)
+    with pytest.raises(type(failure)):
+        asyncio.run(namespace["register"]())
+    assert job.cancelled
+    assert container.active_job_ids == container.job_phases == disconnect.cleanup_tasks == status.jobs == {}
+    expected = "cancelled" if isinstance(failure, asyncio.CancelledError) else "error"
+    assert value(module, "tabbyapi_requests_total", labels={"outcome": expected}) == 1
+    for state in ["queued", "prefill", "decode"]:
+        assert value(module, "tabbyapi_requests_active", labels={"state": state}) == 0
 
 
 @pytest.fixture

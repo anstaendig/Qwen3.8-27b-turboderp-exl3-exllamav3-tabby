@@ -1,8 +1,8 @@
 diff --git a/backends/exllamav3/model.py b/backends/exllamav3/model.py
-index a377598..e1361d0 100644
+index 2cc5ae4..f40daa4 100644
 --- a/backends/exllamav3/model.py
 +++ b/backends/exllamav3/model.py
-@@ -40,6 +40,7 @@ from common.hardware import hardware_supports_exllamav3
+@@ -43,6 +43,7 @@ from common.hardware import hardware_supports_exllamav3, torch_gpu_problem
  from common.health import HealthManager
  from common.errors import ContextLengthExceededError, validate_context_requirements
  from common.logger import xlogger
@@ -10,8 +10,8 @@ index a377598..e1361d0 100644
  from common.model_meta import read_model_meta
  from common.multimodal import MultimodalEmbeddingWrapper
  from common.networking import DisconnectHandler
-@@ -87,6 +88,25 @@ def _merge_stream_results(results: List[dict]) -> dict:
-     return merged
+@@ -188,6 +189,25 @@ def _describe_reasoning_settings(reasoning_params: BaseSamplerRequest) -> str:
+     return ", ".join(parts)
  
  
 +def _observe_output_metrics(metrics_job, source_results: List[dict]) -> None:
@@ -36,7 +36,7 @@ index a377598..e1361d0 100644
  class ExllamaV3Container:
      """Model container for the ExLlamaV3 backend."""
  
-@@ -102,6 +122,7 @@ class ExllamaV3Container:
+@@ -203,6 +223,7 @@ class ExllamaV3Container:
  
      # Optional features
      use_draft_model: bool = False
@@ -44,7 +44,7 @@ index a377598..e1361d0 100644
      use_vision: bool = False
  
      # HF Model instance
-@@ -257,6 +278,7 @@ class ExllamaV3Container:
+@@ -377,6 +398,7 @@ class ExllamaV3Container:
          self.use_draft_model = draft_mode == "mtp" or (
              draft_mode == "model" and bool(draft_model_name)
          )
@@ -52,7 +52,7 @@ index a377598..e1361d0 100644
          self.ngram_match_min = (
              unwrap(draft_args.get("ngram_match_min"), 2) if draft_mode == "ngram" else 0
          )
-@@ -855,6 +877,11 @@ class ExllamaV3Container:
+@@ -996,6 +1018,11 @@ class ExllamaV3Container:
  
              # Cleanup and update model load state
              self.loaded = True
@@ -64,11 +64,14 @@ index a377598..e1361d0 100644
              xlogger.info(f"Model loaded in {time.perf_counter() - load_start:.1f} s")
          finally:
              self.load_lock.release()
-@@ -1709,13 +1736,39 @@ class ExllamaV3Container:
+@@ -2019,12 +2046,39 @@ class ExllamaV3Container:
              stop_on_loop=params.get_stop_on_loop(),
-             filters=grammar_handler.filters,
+             filters=([] if in_reasoning and not phases.engine_trigger else grammar_handler.filters),
          )
 -        self.active_job_ids[request_id] = job
+-        if phases is not None:
+-            phases.job = job
+-            self.job_phases[request_id] = phases
 -        await disconnect_handler.add_cleanup_task(id(job), job.cancel, ())
 -        job_status = status_display.add_job(request_id, label, context_len)
 +        # AsyncJob enqueues synchronously, so admission and the TTFT clock
@@ -76,6 +79,9 @@ index a377598..e1361d0 100644
 +        metrics_job = admit_job(context_len)
 +        try:
 +            self.active_job_ids[request_id] = job
++            if phases is not None:
++                phases.job = job
++                self.job_phases[request_id] = phases
 +            await disconnect_handler.add_cleanup_task(id(job), job.cancel, ())
 +            job_status = status_display.add_job(request_id, label, context_len)
 +        except BaseException as ex:
@@ -97,28 +103,34 @@ index a377598..e1361d0 100644
 +                    status_display.refresh()
 +            except BaseException:
 +                pass
++            self.active_job_ids.pop(request_id, None)
++            self.job_phases.pop(request_id, None)
 +            observe(metrics_job, "finish", outcome)
 +            raise
  
          generated_tokens = 0
          full_response = ""
-         metrics_result = {}
+@@ -2033,6 +2087,7 @@ class ExllamaV3Container:
+         return_progress = bool(getattr(params, "return_progress", False))
+         prefill_start_time: float | None = None
+         prefill_cached_tokens = 0
 +        outcome = "error"
  
          # Get the generation status once it's ready
          try:
-@@ -1725,8 +1778,10 @@ class ExllamaV3Container:
-                 stage = result.get("stage")
-                 if stage == "started":
-                     job_status.started(result.get("cached_tokens", 0))
+@@ -2045,9 +2100,11 @@ class ExllamaV3Container:
+                     # much of its prompt was found in the cache at allocation
+                     prefill_cached_tokens = self._job_cached_tokens(job)
+                     job_status.started(prefill_cached_tokens)
 +                    observe(metrics_job, "started")
+                     prefill_start_time = time.time()
                  elif stage == "prefill":
                      job_status.prefill(result.get("curr_progress", 0))
 +                    observe(metrics_job, "prefill", result.get("curr_progress"))
- 
-                 # The generator can produce several results per iteration
-                 # (speculative decoding), while this consumer may only get one
-@@ -1734,6 +1789,7 @@ class ExllamaV3Container:
+                     if return_progress and prefill_start_time is not None:
+                         # Time since the engine began prefill for this job. The
+                         # started event and the first prefill event often arrive
+@@ -2070,6 +2127,7 @@ class ExllamaV3Container:
                  # downstream actually suspends. Merge everything already
                  # queued so streaming keeps pace with generation instead of
                  # backing up until the generator goes idle.
@@ -126,7 +138,7 @@ index a377598..e1361d0 100644
                  if result.get("stage") == "streaming" and not result.get("eos"):
                      span = [result]
                      while not job.queue.empty():
-@@ -1748,6 +1804,7 @@ class ExllamaV3Container:
+@@ -2084,6 +2142,7 @@ class ExllamaV3Container:
                          span.append(nxt)
                          if nxt.get("eos"):
                              break
@@ -134,7 +146,7 @@ index a377598..e1361d0 100644
                      if len(span) > 1:
                          result = _merge_stream_results(span)
  
-@@ -1790,11 +1847,18 @@ class ExllamaV3Container:
+@@ -2126,11 +2185,18 @@ class ExllamaV3Container:
                      if params.logprobs > 0:
                          self.handle_logprobs(result, generation)
  
@@ -153,7 +165,7 @@ index a377598..e1361d0 100644
                      finish_chunk = self.handle_finish_chunk(
                          result, request_id, full_response, label
                      )
-@@ -1806,11 +1870,19 @@ class ExllamaV3Container:
+@@ -2142,11 +2208,19 @@ class ExllamaV3Container:
                      yield finish_chunk
                      break
  
@@ -173,7 +185,7 @@ index a377598..e1361d0 100644
              await self._recover_from_generation_error(ex, job)
  
              if isinstance(ex, AssertionError) and "cannot be enqueued" in str(ex):
-@@ -1819,7 +1891,12 @@ class ExllamaV3Container:
+@@ -2155,7 +2229,12 @@ class ExllamaV3Container:
                  ) from ex
  
              raise ex
@@ -184,11 +196,11 @@ index a377598..e1361d0 100644
          finally:
 +            observe(metrics_job, "finish", outcome)
              status_display.remove_job(request_id)
+             self.job_phases.pop(request_id, None)
  
-             # Log generation options to console
 diff --git a/common/metrics.py b/common/metrics.py
 new file mode 100644
-index 0000000..44fd418
+index 0000000..13edc7a
 --- /dev/null
 +++ b/common/metrics.py
 @@ -0,0 +1,329 @@
@@ -522,10 +534,10 @@ index 0000000..44fd418
 +        _requests.labels(self.state).dec()
 +        _outcomes.labels(outcome).inc()
 diff --git a/endpoints/server.py b/endpoints/server.py
-index 8d4cf9d..569e059 100644
+index 910e5f2..a9eab11 100644
 --- a/endpoints/server.py
 +++ b/endpoints/server.py
-@@ -1,12 +1,14 @@
+@@ -1,13 +1,15 @@
  import asyncio
  import uvicorn
 -from fastapi import FastAPI
@@ -533,17 +545,18 @@ index 8d4cf9d..569e059 100644
  from fastapi.middleware.cors import CORSMiddleware
  from loguru import logger
  from typing import Optional
+ from urllib.parse import quote
  
- from common import signals
+ from common import auth, signals
 +from common.auth import check_api_key
  from common.logger import UVICORN_LOG_CONFIG
 +from common.metrics import CONTENT_TYPE_LATEST, exposition
  from common.errors import ContextLengthHTTPException, context_length_exception_handler
  from common.networking import get_global_depends
  from common.tabby_config import config
-@@ -71,6 +73,10 @@ def setup_app(host: Optional[str] = None, port: Optional[int] = None):
-     # Include core API request paths
-     app.include_router(CoreRouter)
+@@ -84,6 +86,10 @@ def setup_app(host: Optional[str] = None, port: Optional[int] = None):
+                 link += "#key=" + quote(auth.AUTH_KEYS.admin_key, safe="")
+             logger.info(f"Chat client at {link}")
  
 +    @app.get("/metrics", include_in_schema=False, dependencies=[Depends(check_api_key)])
 +    async def metrics() -> Response:
@@ -553,7 +566,7 @@ index 8d4cf9d..569e059 100644
  
  
 diff --git a/pyproject.toml b/pyproject.toml
-index 7421867..c2ecd96 100644
+index a8b8fe1..c5aa3e9 100644
 --- a/pyproject.toml
 +++ b/pyproject.toml
 @@ -35,6 +35,7 @@ dependencies = [

@@ -1,0 +1,3 @@
+# Prevent an unconstrained FLA dependency from selecting obsolete Transformers
+# when other dependency bounds change. The resolved versions live in the lock.
+transformers>=5.0

@@ -1,7 +1,8 @@
 diff --git a/backends/exllamav3/model.py b/backends/exllamav3/model.py
+index f40daa4..8689c02 100644
 --- a/backends/exllamav3/model.py
 +++ b/backends/exllamav3/model.py
-@@ -26,6 +26,7 @@
+@@ -29,6 +29,7 @@ from exllamav3.cache import CacheLayer_quant
  from backends.exllamav3.grammar import ExLlamaV3Grammar
  
  from backends.exllamav3.sampler import ExllamaV3SamplerBuilder
@@ -9,7 +10,7 @@ diff --git a/backends/exllamav3/model.py b/backends/exllamav3/model.py
  from backends.exllamav3.utils import exllama_supports_nccl
  from backends.exllamav3.vision import clear_image_embedding_cache, image_embedding_cache
  from common.concurrency import iterate_in_threadpool
-@@ -1597,21 +1598,17 @@
+@@ -1866,21 +1867,17 @@ class ExllamaV3Container:
          # ) and gen_settings.token_repetition_range == -1
  
          prompts = [prompt]
@@ -37,6 +38,7 @@ diff --git a/backends/exllamav3/model.py b/backends/exllamav3/model.py
              self.tokenizer.encode(
 diff --git a/backends/exllamav3/stop_conditions.py b/backends/exllamav3/stop_conditions.py
 new file mode 100644
+index 0000000..049f1f3
 --- /dev/null
 +++ b/backends/exllamav3/stop_conditions.py
 @@ -0,0 +1,9 @@
@@ -49,3 +51,15 @@ new file mode 100644
 +        stops.extend(hf_eos_tokens)
 +        stops.extend(backend_eos_tokens)
 +    return list(set(stops))
+diff --git a/common/sampling.py b/common/sampling.py
+index 9a8711f..82029b8 100644
+--- a/common/sampling.py
++++ b/common/sampling.py
+@@ -25,7 +25,6 @@ from common.utils import filter_none_values, unwrap
+ # exllamav3 backend, mapped to the neutral value that leaves them inactive.
+ # Requests that activate any of these get a warning and the param is ignored.
+ UNSUPPORTED_PARAMS = {
+-    "ban_eos_token": False,
+     "allowed_tokens": [],
+     "smoothing_factor": 0.0,
+     "top_a": 0.0,

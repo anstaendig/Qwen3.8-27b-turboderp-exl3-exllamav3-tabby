@@ -1,0 +1,10 @@
+**
+!Dockerfile
+!scripts/
+!scripts/apply-metrics
+!scripts/apply-ban-eos
+!scripts/apply-thinking
+!patches/
+!patches/*.patch
+!requirements/
+!requirements/cu13-python312.lock

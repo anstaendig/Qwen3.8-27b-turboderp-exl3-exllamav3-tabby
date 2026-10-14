@@ -4,7 +4,7 @@ set -euo pipefail
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tabby_dir="$root_dir/tabbyAPI"
 patch_file="$root_dir/patches/tabbyapi-metrics.patch"
-upstream_commit=f07131cd8fe34e449fe87cdd3a066b52b96d3cac
+upstream_commit=a3fed43efae3b18ec6181618d6a4a66153a9d14e
 
 if [[ ! -f "$patch_file" ]]; then
   echo "Metrics patch is missing: $patch_file" >&2

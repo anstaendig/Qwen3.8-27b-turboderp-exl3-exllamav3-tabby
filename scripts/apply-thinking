@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+tabby_dir="$root_dir/tabbyAPI"
+patch_file="$root_dir/patches/tabbyapi-thinking.patch"
+upstream_commit=a3fed43efae3b18ec6181618d6a4a66153a9d14e
+if [[ "$(git -C "$tabby_dir" rev-parse HEAD)" != "$upstream_commit" ]]; then
+  echo "TabbyAPI must be checked out at $upstream_commit." >&2
+  exit 1
+fi
+if git -C "$tabby_dir" apply --reverse --check "$patch_file" 2>/dev/null; then
+  echo "Thinking compatibility is already applied."
+  exit 0
+fi
+for prerequisite in metrics ban-eos; do
+  if ! git -C "$tabby_dir" apply --reverse --check "$root_dir/patches/tabbyapi-$prerequisite.patch" 2>/dev/null; then
+    echo "Apply the maintained $prerequisite patch first." >&2
+    exit 1
+  fi
+done
+git -C "$tabby_dir" apply --check "$patch_file"
+git -C "$tabby_dir" apply "$patch_file"
+echo "Applied opt-in Qwen3.8 thinking compatibility."

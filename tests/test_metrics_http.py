@@ -54,7 +54,7 @@ def app_modules(monkeypatch):
     common.signals = stub("common.signals", SERVER_SERVING=False)
     common.model = stub("common.model", container=None)
     common.networking = stub("common.networking", get_global_depends=lambda: [])
-    network = types.SimpleNamespace(allowed_origins=[], api_servers=["oai"], access_log=False)
+    network = types.SimpleNamespace(allowed_origins=[], api_servers=["oai"], access_log=False, web_ui=False)
     common.tabby_config = stub("common.tabby_config", config=types.SimpleNamespace(network=network))
 
     async def context_length_exception_handler(_request, _exc):

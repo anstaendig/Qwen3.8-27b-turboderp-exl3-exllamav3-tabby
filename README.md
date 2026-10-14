@@ -12,7 +12,8 @@ for monitoring.
 - **Run a local OpenAI-compatible LLM server** for chat, coding agents, tool calling,
   and vision, using any client that speaks the OpenAI API.
 - **Pin everything.** TabbyAPI, the Python/CUDA wheels, and the model weights are all
-  pinned to exact revisions, so an install today matches one next month.
+  pinned to exact revisions; Python dependencies have a resolved, hashed lock.
+  Docker base images are pinned by digest. OS package repositories still move.
 - **Observe the server.** A small patch adds `GET /metrics` in Prometheus format:
   active/completed requests, prompt and output tokens, time to first token,
   prefill/decode timing, KV cache usage, and MTP (speculative decoding) acceptance.
@@ -26,14 +27,18 @@ lower-bpw quant and/or a shorter context.
 
 ```
 this repository
-├── tabbyAPI/            git submodule, pinned to upstream commit f07131c
+├── tabbyAPI/            git submodule, pinned to upstream commit a3fed43
 ├── patches/             source patches applied to that exact commit
 │   ├── tabbyapi-metrics.patch   adds GET /metrics (prometheus-client 0.26.0)
-│   └── tabbyapi-ban-eos.patch   honours ban_eos_token for implicit EOS stop IDs
+│   ├── tabbyapi-ban-eos.patch   honours ban_eos_token for implicit EOS stop IDs
+│   └── tabbyapi-thinking.patch  opt-in Qwen3.8 thinking compatibility
 ├── config.yml           native TabbyAPI config (TabbyAPI reads it directly)
 ├── model.lock.json      model source, immutable revision, and shard SHA-256s
 ├── setup/               setup wizard + catalog of all published quant branches
-├── scripts/             setup, apply-metrics, apply-ban-eos
+├── scripts/             setup, apply-metrics, apply-ban-eos, apply-thinking
+├── requirements/        resolved, hashed Linux x86_64 / Python 3.12 dependency lock
+├── Dockerfile           pinned CUDA image; packages installed only during build
+├── compose.yml          persistent config, keys, and compilation caches
 ├── systemd/             example systemd user unit
 ├── docs/                /metrics contract and design research
 └── tests/               CPU-only tests (no GPU, model, or network needed)
@@ -42,9 +47,11 @@ this repository
 1. The `tabbyAPI/` submodule is upstream TabbyAPI, unmodified in Git.
 2. `scripts/apply-metrics` and `scripts/apply-ban-eos` check that the submodule is at
    the pinned commit and apply the patches exactly once. They refuse to run over
-   unrelated local edits. ExLlamaV3 itself is not modified.
+   unrelated local edits. `scripts/apply-thinking` applies the final opt-in
+   compatibility patch. ExLlamaV3 itself is not modified.
 3. Dependencies come from TabbyAPI's own `cu13` extra (PyTorch 2.11.0 + CUDA 13.0 and
-   the official ExLlamaV3 v1.5.1 wheel), installed into `tabbyAPI/venv`.
+   the official ExLlamaV3 v1.6.1 wheel), resolved and hashed in
+   `requirements/cu13-python312.lock`, synced into `tabbyAPI/venv`.
 4. Model weights are downloaded from Hugging Face at an immutable commit, never a moving
    branch head.
 5. TabbyAPI is started with its normal `main.py`, pointed at the root `config.yml`.
@@ -56,7 +63,7 @@ don't set `ban_eos_token` behave exactly as before.
 
 ## Requirements
 
-- Linux x86_64 with an NVIDIA GPU and a driver that supports CUDA 13 (driver ≥ 580).
+- Linux x86_64 with glibc ≥ 2.31 and an NVIDIA GPU and a driver that supports CUDA 13 (driver ≥ 580).
   The default config needs about 32 GB of VRAM.
 - Git and [`uv`](https://docs.astral.sh/uv/). The wizard downloads Python 3.12.13 and
   the Hugging Face CLI through `uv`, so a system Python 3.10+ is enough to start it.
@@ -117,14 +124,16 @@ These steps reproduce the default configuration (5.00 bpw H6) by hand:
 git submodule update --init --checkout
 ./scripts/apply-metrics
 ./scripts/apply-ban-eos
+./scripts/apply-thinking
 
 cd tabbyAPI
 uv python install 3.12.13
 uv venv venv -p 3.12.13
-uv pip install --python venv/bin/python -e '.[cu13]'
+uv pip sync --python venv/bin/python --require-hashes --only-binary :all: \
+  ../requirements/cu13-python312.lock
 
 # config.yml uses model_dir "models", which resolves to tabbyAPI/models
-uvx --from 'huggingface_hub==1.2.3' hf download turboderp/Qwen3.8-27B-exl3 \
+venv/bin/hf download turboderp/Qwen3.8-27B-exl3 \
   --revision dfe2f4fd71bf9a1994051d4d47e6460fa96dd723 \
   --local-dir models/qwen3-8-27b-exl3-sc-5-00bpw-h6
 ```
@@ -134,7 +143,10 @@ Compare the SHA-256 of each downloaded `*.safetensors` shard with
 
 Notes:
 
-- Apply both patches **before** installing dependencies, so `prometheus-client` is included.
+- Apply all three patches **before** installing dependencies. The lock includes
+  `prometheus-client==0.26.0` and the Hugging Face CLI, with their dependencies.
+- This native installer is an explicit installation step. Neither native service
+  startup nor Docker startup installs or updates packages.
 - Use the uv-managed Python rather than a distro Python: Triton compiles a small C
   helper at model warm-up and needs the Python development headers.
 - Use a fresh virtual environment. Don't upgrade an existing CUDA 12 environment in place.
@@ -186,6 +198,35 @@ journalctl --user -u exl3-tabbyapi.service -f
 
 Stop the service before re-running the setup wizard, since it changes the environment
 the service uses.
+
+## Docker packaging
+
+With the model already downloaded into `MODELS_DIR` (a parent directory containing
+`model_name`), on an authorized Linux GPU host:
+
+```sh
+MODELS_DIR=/absolute/path/to/models docker compose build
+MODELS_DIR=/absolute/path/to/models docker compose up -d
+```
+
+Compose publishes `127.0.0.1:8080` on the host. It mounts root `config.yml` read-only,
+models read-only, and named volumes for generated API keys and Torch/Triton/CUDA
+compilation caches. CLI overrides set the container's bind address, port, and model
+parent directory; `model_name` and all other options still come from your config.
+Image builds fetch the exact upstream commit, apply all three patches, and install
+only the hashed dependency lock. Startup invokes `main.py` directly. No model
+weights or secrets enter the build context. See [packaging details](docs/packaging.md)
+for keys, rebuilds, and validation boundaries.
+
+## Thinking controls
+
+Root config enables the maintained `model.qwen38_thinking_compat` field. It maps
+`high` → `xhigh`; `none` removes the effort and supplies `enable_thinking: false`
+when there is no explicit toggle. Canonical `low`, `medium`, `xhigh` pass through.
+An explicit `enable_thinking` value wins over the inferred `none` toggle. Omitted
+controls retain the locked template's thinking-on / `xhigh` default. Effort selects
+prompt instructions, not a token budget. [Compatibility details](docs/thinking-controls.md)
+cover precedence, all request surfaces, and how to disable the adapter for other models.
 
 ## Prometheus metrics
 
@@ -240,8 +281,9 @@ vLLM, SGLang, and llama.cpp metrics is in [`docs/research/`](docs/research/).
   restart to rotate them.
 - **Supply chain:** the submodule, the patch base, the wheels, and the model revision
   are pinned. The setup wizard only accepts catalog entries with 40-character commit
-  hashes. Transitive Python dependencies follow TabbyAPI's constraints and are not fully
-  locked.
+  hashes. Transitive Python dependencies are locked with hashes for Linux x86_64,
+  glibc ≥ 2.31 and Python 3.12.13. OS packages and native compiler outputs are
+  outside that Python lock; see [packaging details](docs/packaging.md).
 
 ## Development and tests
 
@@ -250,10 +292,10 @@ submodule and exercise the metrics code and the wizard with stubs:
 
 ```sh
 git submodule update --init --checkout
-./scripts/apply-metrics && ./scripts/apply-ban-eos
+./scripts/apply-metrics && ./scripts/apply-ban-eos && ./scripts/apply-thinking
 uv venv .venv -p 3.12
 uv pip install --python .venv/bin/python pytest pydantic PyYAML==6.0.2 \
-  prometheus-client==0.26.0 fastapi httpx loguru
+  prometheus-client==0.26.0 fastapi httpx loguru jinja2==3.1.6
 .venv/bin/python -m pytest tests -q
 ```
 

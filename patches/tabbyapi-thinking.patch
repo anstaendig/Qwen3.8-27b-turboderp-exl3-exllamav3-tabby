@@ -1,0 +1,53 @@
+diff --git a/backends/exllamav3/model.py b/backends/exllamav3/model.py
+index 8689c02..8fbe777 100644
+--- a/backends/exllamav3/model.py
++++ b/backends/exllamav3/model.py
+@@ -687,6 +687,7 @@ class ExllamaV3Container:
+         self.reasoning_budget_message = kwargs.get("reasoning_budget_message")
+
+         # Default and forced chat template variables
++        self.qwen38_thinking_compat = bool(kwargs.get("qwen38_thinking_compat", False))
+         self.template_vars_default = kwargs.get("template_vars_default") or {}
+         self.template_vars_force = kwargs.get("template_vars_force") or {}
+         if kwargs.get("force_enable_thinking"):
+diff --git a/common/config_models.py b/common/config_models.py
+index 2f1dab7..ee98ee2 100644
+--- a/common/config_models.py
++++ b/common/config_models.py
+@@ -482,6 +482,10 @@ class ModelConfig(BaseConfigModel):
+             "an override is forced."
+         ),
+     )
++    qwen38_thinking_compat: bool = Field(
++        False,
++        description="Map high to xhigh and none to thinking off for Qwen3.8 templates.",
++    )
+     template_vars_default: dict = Field(
+         {},
+         description=(
+diff --git a/endpoints/OAI/utils/chat_completion.py b/endpoints/OAI/utils/chat_completion.py
+index 0d50976..4a3fbc2 100644
+--- a/endpoints/OAI/utils/chat_completion.py
++++ b/endpoints/OAI/utils/chat_completion.py
+@@ -483,11 +483,20 @@ def resolve_template_vars(data: ChatCompletionRequest, container) -> dict:
+
+     request_vars.update(data.template_vars)
+
+-    return {
++    resolved = {
+         **container.template_vars_default,
+         **request_vars,
+         **container.template_vars_force,
+     }
++    if getattr(container, "qwen38_thinking_compat", False):
++        if resolved.get("reasoning_effort") == "high":
++            resolved["reasoning_effort"] = "xhigh"
++        elif resolved.get("reasoning_effort") == "none":
++            # The locked template represents off with a boolean, not an effort.
++            # Explicit enable_thinking values retain the existing precedence.
++            resolved.pop("reasoning_effort")
++            resolved.setdefault("enable_thinking", False)
++    return resolved
+
+
+ def normalize_message_roles(data: ChatCompletionRequest):

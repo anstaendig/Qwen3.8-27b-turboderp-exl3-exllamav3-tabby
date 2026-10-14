@@ -1,0 +1,28 @@
+services:
+  tabbyapi:
+    build: .
+    image: qwen38-tabbyapi:local
+    platform: linux/amd64
+    gpus: all
+    shm_size: 8gb
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - type: bind
+        source: ./config.yml
+        target: /state/config.yml
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ${MODELS_DIR:-./tabbyAPI/models}
+        target: /app/tabbyAPI/models
+        read_only: true
+        bind:
+          create_host_path: false
+      - auth:/state/auth
+      - compilation-cache:/cache
+volumes:
+  auth:
+  compilation-cache:

@@ -22,6 +22,7 @@ model:
   vision_offload: false
   tool_format: qwen3_coder
   tool_calls_in_reasoning: false
+  qwen38_thinking_compat: true
   reasoning: true
   reasoning_start_token: <think>
   reasoning_end_token: </think>
