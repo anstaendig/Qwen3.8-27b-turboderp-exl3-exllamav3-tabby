@@ -270,6 +270,7 @@ def install(root: Path, *, source: str, entry: dict, model_dir: Path, existing_l
     _run(runner, [str(root / "scripts" / "apply-metrics")], cwd=root)
     _run(runner, [str(root / "scripts" / "apply-ban-eos")], cwd=root)
     _run(runner, [str(root / "scripts" / "apply-thinking")], cwd=root)
+    _run(runner, [str(root / "scripts" / "apply-tool-arguments")], cwd=root)
     _run(runner, ["uv", "python", "install", "3.12.13"], cwd=root)
     venv = submodule / "venv"
     python = venv / "bin" / "python"

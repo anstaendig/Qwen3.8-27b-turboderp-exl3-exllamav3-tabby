@@ -7,12 +7,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV UV_PYTHON_INSTALL_DIR=/opt/python UV_PYTHON_PREFERENCE=only-managed
 RUN uv python install 3.12.13 && uv venv /opt/venv -p 3.12.13
 WORKDIR /app
-COPY scripts/apply-metrics scripts/apply-ban-eos scripts/apply-thinking /app/scripts/
+COPY scripts/apply-metrics scripts/apply-ban-eos scripts/apply-thinking scripts/apply-tool-arguments /app/scripts/
 COPY patches/ /app/patches/
 RUN git init tabbyAPI && git -C tabbyAPI fetch --depth=1 \
     https://github.com/theroyallab/tabbyAPI.git a3fed43efae3b18ec6181618d6a4a66153a9d14e \
     && git -C tabbyAPI checkout --detach FETCH_HEAD \
-    && scripts/apply-metrics && scripts/apply-ban-eos && scripts/apply-thinking
+    && scripts/apply-metrics && scripts/apply-ban-eos && scripts/apply-thinking && scripts/apply-tool-arguments
 COPY requirements/cu13-python312.lock /app/requirements/cu13-python312.lock
 RUN uv pip sync --python /opt/venv/bin/python --require-hashes --only-binary :all: \
     /app/requirements/cu13-python312.lock && uv cache clean \

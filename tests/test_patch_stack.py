@@ -15,7 +15,7 @@ def test_clean_apply_idempotence_and_working_source_match(tmp_path):
     subprocess.run(["git", "clone", "--quiet", "--shared", "--no-checkout", str(ROOT / "tabbyAPI"), str(tabby)], check=True)
     subprocess.run(["git", "checkout", "--quiet", "--detach", PIN], cwd=tabby, check=True)
     def apply():
-        for name in ["metrics", "ban-eos", "thinking"]:
+        for name in ["metrics", "ban-eos", "thinking", "tool-arguments"]:
             subprocess.run([str(tmp_path / f"scripts/apply-{name}")], check=True, capture_output=True)
     def snapshot():
         return {str(p.relative_to(tabby)): hashlib.sha256(p.read_bytes()).hexdigest()
@@ -28,6 +28,6 @@ def test_clean_apply_idempotence_and_working_source_match(tmp_path):
     changes += subprocess.check_output(["git", "ls-files", "--others", "--exclude-standard"], cwd=tabby, text=True).splitlines()
     for name in changes:
         assert (tabby / name).read_bytes() == (ROOT / "tabbyAPI" / name).read_bytes(), name
-    for name in ["thinking", "ban-eos", "metrics"]:
+    for name in ["tool-arguments", "thinking", "ban-eos", "metrics"]:
         subprocess.run(["git", "apply", "--reverse", str(tmp_path / f"patches/tabbyapi-{name}.patch")], cwd=tabby, check=True)
     assert subprocess.check_output(["git", "status", "--porcelain"], cwd=tabby) == b""

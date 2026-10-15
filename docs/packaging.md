@@ -11,12 +11,13 @@ Both the native setup wizard and Docker use `uv pip sync --require-hashes
 unlocked `uvx` tool environment. TabbyAPI runs directly from patched source.
 Embeddings extras are outside this deployment and are not installed.
 
-To intentionally refresh the lock with uv 0.11.14, first apply all three patches:
+To intentionally refresh the lock with uv 0.11.14, first apply all four patches:
 
 ```sh
 ./scripts/apply-metrics
 ./scripts/apply-ban-eos
 ./scripts/apply-thinking
+./scripts/apply-tool-arguments
 uv pip compile tabbyAPI/pyproject.toml --extra cu13 \
   -c requirements/constraints.txt --python-version 3.12.13 \
   --python-platform x86_64-manylinux_2_39 --generate-hashes \

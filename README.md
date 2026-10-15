@@ -31,11 +31,12 @@ this repository
 ├── patches/             source patches applied to that exact commit
 │   ├── tabbyapi-metrics.patch   adds GET /metrics (prometheus-client 0.26.0)
 │   ├── tabbyapi-ban-eos.patch   honours ban_eos_token for implicit EOS stop IDs
-│   └── tabbyapi-thinking.patch  opt-in Qwen3.8 thinking compatibility
+│   ├── tabbyapi-thinking.patch  opt-in Qwen3.8 thinking compatibility
+│   └── tabbyapi-tool-arguments.patch  schema-aware Qwen XML arguments
 ├── config.yml           native TabbyAPI config (TabbyAPI reads it directly)
 ├── model.lock.json      model source, immutable revision, and shard SHA-256s
 ├── setup/               setup wizard + catalog of all published quant branches
-├── scripts/             setup, apply-metrics, apply-ban-eos, apply-thinking
+├── scripts/             setup, apply-metrics, apply-ban-eos, apply-thinking, apply-tool-arguments
 ├── requirements/        resolved, hashed Linux x86_64 / Python 3.12 dependency lock
 ├── Dockerfile           pinned CUDA image; packages installed only during build
 ├── compose.yml          persistent config, keys, and compilation caches
@@ -47,8 +48,9 @@ this repository
 1. The `tabbyAPI/` submodule is upstream TabbyAPI, unmodified in Git.
 2. `scripts/apply-metrics` and `scripts/apply-ban-eos` check that the submodule is at
    the pinned commit and apply the patches exactly once. They refuse to run over
-   unrelated local edits. `scripts/apply-thinking` applies the final opt-in
-   compatibility patch. ExLlamaV3 itself is not modified.
+   unrelated local edits. `scripts/apply-thinking` applies the opt-in
+   compatibility patch. `scripts/apply-tool-arguments` then applies schema-aware Qwen XML
+   argument conversion. ExLlamaV3 itself is not modified.
 3. Dependencies come from TabbyAPI's own `cu13` extra (PyTorch 2.11.0 + CUDA 13.0 and
    the official ExLlamaV3 v1.6.1 wheel), resolved and hashed in
    `requirements/cu13-python312.lock`, synced into `tabbyAPI/venv`.
@@ -125,6 +127,7 @@ git submodule update --init --checkout
 ./scripts/apply-metrics
 ./scripts/apply-ban-eos
 ./scripts/apply-thinking
+./scripts/apply-tool-arguments
 
 cd tabbyAPI
 uv python install 3.12.13
@@ -143,7 +146,7 @@ Compare the SHA-256 of each downloaded `*.safetensors` shard with
 
 Notes:
 
-- Apply all three patches **before** installing dependencies. The lock includes
+- Apply all four patches **before** installing dependencies. The lock includes
   `prometheus-client==0.26.0` and the Hugging Face CLI, with their dependencies.
 - This native installer is an explicit installation step. Neither native service
   startup nor Docker startup installs or updates packages.
@@ -213,7 +216,7 @@ Compose publishes `127.0.0.1:8080` on the host. It mounts root `config.yml` read
 models read-only, and named volumes for generated API keys and Torch/Triton/CUDA
 compilation caches. CLI overrides set the container's bind address, port, and model
 parent directory; `model_name` and all other options still come from your config.
-Image builds fetch the exact upstream commit, apply all three patches, and install
+Image builds fetch the exact upstream commit, apply all four patches, and install
 only the hashed dependency lock. Startup invokes `main.py` directly. No model
 weights or secrets enter the build context. See [packaging details](docs/packaging.md)
 for keys, rebuilds, and validation boundaries.
@@ -227,6 +230,21 @@ An explicit `enable_thinking` value wins over the inferred `none` toggle. Omitte
 controls retain the locked template's thinking-on / `xhigh` default. Effort selects
 prompt instructions, not a token budget. [Compatibility details](docs/thinking-controls.md)
 cover precedence, all request surfaces, and how to disable the adapter for other models.
+
+## Qwen XML tool arguments
+
+Qwen XML parameters use the request tool's declared JSON-schema type, including
+lists of types. Strings preserve their text (apart from template boundary newlines);
+booleans accept any case, nullable parameters accept `null` or `None`, and integer
+parameters reject fractions. Objects and arrays accept JSON, then safe Python
+literals via `ast.literal_eval`. Incompatible values stay as text. Unknown parameters
+retain JSON decoding and also recognize Python booleans and `None`. Streaming and
+non-streaming requests use the same conversion.
+
+CPU tests verify parser behavior; host installation, model load and inference remain
+separate checks. For live verification on an authorized host, declare an `unlock`
+boolean tool parameter and prompt "Lock the driver door". Check that the returned
+arguments contain `"unlock": false` as a JSON boolean in both response modes.
 
 ## Prometheus metrics
 
@@ -292,7 +310,7 @@ submodule and exercise the metrics code and the wizard with stubs:
 
 ```sh
 git submodule update --init --checkout
-./scripts/apply-metrics && ./scripts/apply-ban-eos && ./scripts/apply-thinking
+./scripts/apply-metrics && ./scripts/apply-ban-eos && ./scripts/apply-thinking && ./scripts/apply-tool-arguments
 uv venv .venv -p 3.12
 uv pip install --python .venv/bin/python pytest pydantic PyYAML==6.0.2 \
   prometheus-client==0.26.0 fastapi httpx loguru jinja2==3.1.6
