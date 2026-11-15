@@ -4,6 +4,7 @@
 !scripts/apply-metrics
 !scripts/apply-ban-eos
 !scripts/apply-thinking
+!scripts/apply-tool-arguments
 !patches/
 !patches/*.patch
 !requirements/
