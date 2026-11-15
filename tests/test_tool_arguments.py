@@ -28,16 +28,26 @@ def parser(monkeypatch):
     before = set(sys.modules)
     tooltypes = importlib.import_module('endpoints.OAI.types.tools')
     tools = importlib.import_module('endpoints.OAI.utils.tools')
+    common = importlib.import_module('endpoints.OAI.utils.toolcall_formats.common')
     stream = importlib.import_module('endpoints.OAI.utils.stream_parser')
+    toolcall_stream = importlib.import_module('endpoints.OAI.utils.toolcall_stream')
     tree = ast.parse((TABBY / 'endpoints/OAI/utils/chat_completion.py').read_text())
     nodes = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
              and n.name in ('_parse_tool_calls', '_chat_stream_collector')]
     ns = dict(vars(stream), asyncio=asyncio, xlogger=logger, parse_toolcalls=tools.parse_toolcalls,
               get_toolcall_tags=tools.get_toolcall_tags,
+              param_types_from_tools=common.param_types_from_tools,
+              make_delta_streamer=toolcall_stream.make_delta_streamer,
               _resolve_reasoning_budget=lambda *a: (None, ''), model=None)
+
+    def parse(text, tool_format, tools=None):
+        # Upstream dispatches declared types, not tool specs, to the parsers.
+        return tools_module.parse_toolcalls(text, tool_format, common.param_types_from_tools(tools))
+
+    tools_module = tools
     exec(compile(ast.fix_missing_locations(ast.Module(body=[ast.ImportFrom(module='__future__', names=[ast.alias(name='annotations')], level=0)] + nodes,
                             type_ignores=[])), 'collector', 'exec'), ns)
-    yield tooltypes.ToolSpec, tools.parse_toolcalls, ns
+    yield tooltypes.ToolSpec, parse, ns
     for name in set(sys.modules) - before:
         if name.startswith(('endpoints.', 'common.')):
             sys.modules.pop(name, None)
@@ -53,6 +63,8 @@ CASES = [
     ('number', '10', 10), ('number', '10.5', 10.5), ('number', '-3', -3),
     ('number', 'true', 'true'), ('number', '1e999', '1e999'),
     ('string', '123', '123'), ('string', 'true', 'true'), ('string', '  true  ', '  true  '),
+    ('string', '    def f():\n        pass\n', '    def f():\n        pass\n'),
+    ('string', '\n', '\n'), (None, 'tRuE', True), (None, 'NaN', 'NaN'),
     (['string'], '123', '123'), (['boolean', 'null'], 'None', None),
     (['null', 'boolean'], 'FALSE', False), ('null', 'none', None), ('null', '10', '10'),
     ('array', "['a', 'b']", ['a', 'b']), ('object', "{'k': True}", {'k': True}),
@@ -104,23 +116,30 @@ def test_real_collector_stream_nonstream_parity(parser, step):
                                 reasoning=False, reasoning_start_token=None, reasoning_end_token=None,
                                 tool_calls_in_reasoning=False, stream_generate=generate)
     ns['model'] = SimpleNamespace(container=container)
-    params = SimpleNamespace(tools=tools, tool_choice='auto', json_schema=None)
+    params = SimpleNamespace(tools=tools, tool_choice='auto', json_schema=None,
+                             continue_final_message=False)
     async def run():
         queue = asyncio.Queue()
         result = await ns['_chat_stream_collector'](0, None, 'test', '', params, False, streaming_mode=False)
         assert isinstance(result, dict), result
         await ns['_chat_stream_collector'](0, queue, 'test', '', params, False)
-        chunks = []
+        # Upstream streams qwen3_coder argument fragments; assemble them per call index.
+        calls = {}
         while not queue.empty():
             item = queue.get_nowait()
             assert isinstance(item, dict), item
-            if item.get('delta_tool_calls'):
-                chunks.extend(item['delta_tool_calls'])
-        return result['tool_calls'], chunks
+            for delta in item.get('delta_tool_calls') or []:
+                call = calls.setdefault(delta['index'], {'name': None, 'arguments': ''})
+                function = delta.get('function', {})
+                call['name'] = function.get('name') or call['name']
+                call['arguments'] += function.get('arguments', '')
+        streamed = [{'function': calls[i]} for i in sorted(calls)]
+        return result['tool_calls'], streamed
     direct, streamed = asyncio.run(run())
     expected = {f'p{i}': v for i, (_, _, v) in enumerate(CASES)}
     for calls in (direct, streamed):
         assert len(calls) == 1
         assert calls[0]['function']['name'] == 'f'
         assert json.loads(calls[0]['function']['arguments']) == expected
-    assert direct[0]['function'] == streamed[0]['function']
+    assert direct[0]['function']['name'] == streamed[0]['function']['name']
+    assert direct[0]['function']['arguments'] == streamed[0]['function']['arguments']

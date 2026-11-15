@@ -30,7 +30,7 @@ DIRECTORY = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]*$")
 HOST_LABEL = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$")
 KEY = re.compile(r"^  ([A-Za-z_][A-Za-z0-9_]*):(?:[ \t]+(.*?))?[ \t]*$")
 SECTION = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*):[ \t]*$")
-UPSTREAM = "a3fed43efae3b18ec6181618d6a4a66153a9d14e"
+UPSTREAM = "47281587fafbd69e50aaf77c7626f390811126b6"
 
 
 def load_catalog(path: Path) -> dict:

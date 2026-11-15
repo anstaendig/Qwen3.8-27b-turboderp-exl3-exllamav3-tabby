@@ -61,7 +61,11 @@ def app_modules(monkeypatch):
         raise AssertionError("unrelated exception handler was called")
 
     common.errors = stub("common.errors", ContextLengthHTTPException=type("ContextLengthHTTPException", (Exception,), {}),
-                         context_length_exception_handler=context_length_exception_handler)
+                         context_length_exception_handler=context_length_exception_handler,
+                         LoopDetectedHTTPException=type("LoopDetectedHTTPException", (Exception,), {}),
+                         loop_detected_exception_handler=context_length_exception_handler)
+    common.optional_dependencies = stub("common.optional_dependencies",
+                                        package_version_info=lambda *_args: None)
 
     oai_router = types.SimpleNamespace(api_name="OAI", setup=lambda: APIRouter())
     kobold_router = types.SimpleNamespace(api_name="Kobold", setup=lambda: APIRouter())
@@ -69,13 +73,23 @@ def app_modules(monkeypatch):
     stub("endpoints.Kobold", router=kobold_router)
     core = stub("endpoints.core")
     core.__path__ = [str(TABBY / "endpoints/core")]
-    stub("endpoints.core.router", router=APIRouter())
+    # Upstream's core router registers its own opt-in llama.cpp-style /metrics.
+    core_router = APIRouter()
+
+    @core_router.get("/metrics")
+    async def upstream_metrics():
+        return {"upstream": True}
+
+    stub("endpoints.core.router", router=core_router)
+    ui = stub("endpoints.ui")
+    ui.__path__ = []
+    stub("endpoints.ui.router", mount_ui=lambda _app: None)
 
     auth = load_source("common.auth", TABBY / "common/auth.py", monkeypatch)
     auth.AUTH_KEYS = auth.AuthKeys(api_key="test-api-key", admin_key="test-admin-key")
     auth.DISABLE_AUTH = False
     common.auth = auth
-    common.metrics = load_source("common.metrics", TABBY / "common/metrics.py", monkeypatch)
+    common.prometheus_metrics = load_source("common.prometheus_metrics", TABBY / "common/prometheus_metrics.py", monkeypatch)
     server = load_source("endpoints.server", TABBY / "endpoints/server.py", monkeypatch)
     return server, auth
 
@@ -112,6 +126,8 @@ def test_real_setup_app_metrics_route_auth_and_exposition(app_modules, monkeypat
 
     assert client.get("/v1/metrics", headers={"x-api-key": "test-api-key"}).status_code == 404
     assert calls == [True]
-    assert not any(getattr(route, "path", None) == "/metrics" for route in app.routes
-                   if getattr(route, "include_in_schema", True))
+    # The maintained route is registered first, so it shadows upstream's exporter.
+    metrics_routes = [route for route in app.routes if getattr(route, "path", None) == "/metrics"]
+    assert metrics_routes[0].include_in_schema is False
+    assert metrics_routes[0].endpoint.__module__ == "endpoints.server"
     assert auth.DISABLE_AUTH is False

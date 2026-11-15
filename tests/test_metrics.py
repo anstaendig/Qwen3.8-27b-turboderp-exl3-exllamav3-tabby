@@ -13,7 +13,7 @@ import pytest
 from prometheus_client.parser import text_string_to_metric_families
 
 
-METRICS_PATH = Path(__file__).resolve().parents[1] / "tabbyAPI/common/metrics.py"
+METRICS_PATH = Path(__file__).resolve().parents[1] / "tabbyAPI/common/prometheus_metrics.py"
 BACKEND_PATH = Path(__file__).resolve().parents[1] / "tabbyAPI/backends/exllamav3/model.py"
 
 

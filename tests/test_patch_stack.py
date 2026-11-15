@@ -5,7 +5,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-PIN = "a3fed43efae3b18ec6181618d6a4a66153a9d14e"
+PIN = "47281587fafbd69e50aaf77c7626f390811126b6"
 
 
 def test_clean_apply_idempotence_and_working_source_match(tmp_path):

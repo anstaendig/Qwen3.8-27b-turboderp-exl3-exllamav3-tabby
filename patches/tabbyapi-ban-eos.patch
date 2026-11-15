@@ -1,23 +1,24 @@
 diff --git a/backends/exllamav3/model.py b/backends/exllamav3/model.py
-index f40daa4..8689c02 100644
+index 51ef440..8e19335 100644
 --- a/backends/exllamav3/model.py
 +++ b/backends/exllamav3/model.py
-@@ -29,6 +29,7 @@ from exllamav3.cache import CacheLayer_quant
- from backends.exllamav3.grammar import ExLlamaV3Grammar
- 
- from backends.exllamav3.sampler import ExllamaV3SamplerBuilder
+@@ -35,6 +35,7 @@ from backends.exllamav3.sampler import (
+     SS_HealedCandidates,
+     SS_OnlyPath,
+ )
 +from backends.exllamav3.stop_conditions import build_stop_conditions
  from backends.exllamav3.utils import exllama_supports_nccl
  from backends.exllamav3.vision import clear_image_embedding_cache, image_embedding_cache
  from common.concurrency import iterate_in_threadpool
-@@ -1866,21 +1867,17 @@ class ExllamaV3Container:
+@@ -2399,7 +2400,6 @@ class ExllamaV3Container:
          # ) and gen_settings.token_repetition_range == -1
  
          prompts = [prompt]
 -        stop_conditions = params.stop
          add_bos_token = unwrap(params.add_bos_token, self.hf_model.add_bos_token())
+         add_bos_token = add_bos_token and self.bos_token_id is not None
          grammar_handler = ExLlamaV3Grammar()
- 
+@@ -2407,14 +2407,11 @@ class ExllamaV3Container:
          # Get multimodal embeddings if present
          mm_embeddings_content = mm_embeddings.content if mm_embeddings else []
  
@@ -35,7 +36,7 @@ index f40daa4..8689c02 100644
 +        )
  
          input_ids = [
-             self.tokenizer.encode(
+             self.encode_prompt(
 diff --git a/backends/exllamav3/stop_conditions.py b/backends/exllamav3/stop_conditions.py
 new file mode 100644
 index 0000000..049f1f3
@@ -52,7 +53,7 @@ index 0000000..049f1f3
 +        stops.extend(backend_eos_tokens)
 +    return list(set(stops))
 diff --git a/common/sampling.py b/common/sampling.py
-index 9a8711f..82029b8 100644
+index 426ef3f..238298e 100644
 --- a/common/sampling.py
 +++ b/common/sampling.py
 @@ -25,7 +25,6 @@ from common.utils import filter_none_values, unwrap

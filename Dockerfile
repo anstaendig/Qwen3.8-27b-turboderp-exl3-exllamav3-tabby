@@ -10,7 +10,7 @@ WORKDIR /app
 COPY scripts/apply-metrics scripts/apply-ban-eos scripts/apply-thinking scripts/apply-tool-arguments /app/scripts/
 COPY patches/ /app/patches/
 RUN git init tabbyAPI && git -C tabbyAPI fetch --depth=1 \
-    https://github.com/theroyallab/tabbyAPI.git a3fed43efae3b18ec6181618d6a4a66153a9d14e \
+    https://github.com/theroyallab/tabbyAPI.git 47281587fafbd69e50aaf77c7626f390811126b6 \
     && git -C tabbyAPI checkout --detach FETCH_HEAD \
     && scripts/apply-metrics && scripts/apply-ban-eos && scripts/apply-thinking && scripts/apply-tool-arguments
 COPY requirements/cu13-python312.lock /app/requirements/cu13-python312.lock

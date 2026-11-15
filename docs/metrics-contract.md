@@ -1,6 +1,6 @@
 # TabbyAPI Prometheus `/metrics` contract, version 1
 
-Status: implementation contract for this project's pinned TabbyAPI `a3fed43efae3b18ec6181618d6a4a66153a9d14e` and ExLlamaV3 backend. The target is an independently useful server metric API; a monitor is merely one possible consumer. The existing [source comparison](research/metrics-comparison-and-plan.md) records the pinned vLLM and SGLang references.
+Status: implementation contract for this project's pinned TabbyAPI `47281587fafbd69e50aaf77c7626f390811126b6` and ExLlamaV3 backend. The target is an independently useful server metric API; a monitor is merely one possible consumer. The existing [source comparison](research/metrics-comparison-and-plan.md) records the pinned vLLM and SGLang references.
 
 ## Scope and evidence
 
@@ -10,21 +10,32 @@ Status: implementation contract for this project's pinned TabbyAPI `a3fed43efae3
 
 **Unknown until implementation/live validation.** Whether every engine callback arrives for cancellation, cache-stat collection cost under the target model, and runtime precision of engine timing values require local event-sequence tests and an authorized live check. Do not infer GPU usage, network delivery time or individual benchmark request identity from this endpoint.
 
-## Current rebase evidence (2026-10-14)
+## Current rebase evidence (2026-11-15)
 
-The current pin is [TabbyAPI a3fed43](https://github.com/theroyallab/tabbyAPI/tree/a3fed43efae3b18ec6181618d6a4a66153a9d14e),
-with [ExLlamaV3 1.6.1 / f45b845](https://github.com/turboderp-org/exllamav3/tree/f45b84512ba65bca77f7d394399d4b68821fc71b).
+The current pin is [TabbyAPI 4728158](https://github.com/theroyallab/tabbyAPI/tree/47281587fafbd69e50aaf77c7626f390811126b6),
+with [ExLlamaV3 1.6.7 / 8c593e4](https://github.com/turboderp-org/exllamav3/tree/8c593e4e5c88da76a4aaf8f1b1838bb7c1fce4e0).
 The historical links above retain their original revision. Current source still
-[enqueues synchronously in AsyncJob](https://github.com/turboderp-org/exllamav3/blob/f45b84512ba65bca77f7d394399d4b68821fc71b/exllamav3/generator/async_generator.py#L140-L152),
-[reports raw timing, prompt/cache and draft fields at EOS](https://github.com/turboderp-org/exllamav3/blob/f45b84512ba65bca77f7d394399d4b68821fc71b/exllamav3/generator/job.py#L896-L925),
-and [provides the same three GPU cache snapshot keys](https://github.com/turboderp-org/exllamav3/blob/f45b84512ba65bca77f7d394399d4b68821fc71b/exllamav3/generator/generator.py#L331-L418).
-Additional system-memory-tier keys are not exported by version 1. Cache-reuse
-accounting comes directly from the newer engine's snapshot; its internal
-implementation has evolved. No change is made to the public metric families,
-labels, buckets, or event boundaries. New upstream job-phase bookkeeping and
-prefill-progress responses are retained. The patch now also clears phase and
-active-job registrations if post-enqueue setup fails. Current host behavior remains
-unverified; the older host record does not accept this new pin.
+[enqueues synchronously in AsyncJob](https://github.com/turboderp-org/exllamav3/blob/8c593e4e5c88da76a4aaf8f1b1838bb7c1fce4e0/exllamav3/generator/async_generator.py#L159-L168),
+[reports raw timing, prompt/cache and draft fields at EOS](https://github.com/turboderp-org/exllamav3/blob/8c593e4e5c88da76a4aaf8f1b1838bb7c1fce4e0/exllamav3/generator/job.py#L928-L948),
+and [provides the same three GPU cache snapshot keys](https://github.com/turboderp-org/exllamav3/blob/8c593e4e5c88da76a4aaf8f1b1838bb7c1fce4e0/exllamav3/generator/generator.py#L498-L520).
+Draft totals are also reported for MTP (`hybrid_draft_tokens`) jobs.
+
+Upstream added its own opt-in exporter: `common/metrics.py`, served from the core
+router at `/metrics` when `network.enable_metrics` is true. It uses llama.cpp/vLLM
+names with a `tabbyapi:` prefix. Its semantics differ from version 1: requests
+include cancellations, TTFT is computed from rounded engine phase times, there are
+no outcome or state labels, and its throughput gauges reset on each scrape. None of
+its families is an alias for this contract. The maintained module therefore moved
+to `common/prometheus_metrics.py`, and its route is registered before the core
+router so it serves `/metrics` whatever `enable_metrics` says. Upstream's recorder
+still runs and is never exposed. No public family, label, bucket or event boundary
+changed.
+
+New upstream paths were classified against the existing rules. A job cancelled from
+the status page, or stopped by `stop_after_output`, ends without EOS and counts as
+`cancelled`. `loop_detect_error` raises after EOS and remains `completed`. Jobs
+started by `/v1/decisions` don't use the text-generation consumer and are not
+counted. Host behavior remains unverified for this pin.
 
 ## Endpoint and lifecycle
 

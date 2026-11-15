@@ -27,7 +27,7 @@ lower-bpw quant and/or a shorter context.
 
 ```
 this repository
-├── tabbyAPI/            git submodule, pinned to upstream commit a3fed43
+├── tabbyAPI/            git submodule, pinned to upstream commit 4728158
 ├── patches/             source patches applied to that exact commit
 │   ├── tabbyapi-metrics.patch   adds GET /metrics (prometheus-client 0.26.0)
 │   ├── tabbyapi-ban-eos.patch   honours ban_eos_token for implicit EOS stop IDs
@@ -52,7 +52,7 @@ this repository
    compatibility patch. `scripts/apply-tool-arguments` then applies schema-aware Qwen XML
    argument conversion. ExLlamaV3 itself is not modified.
 3. Dependencies come from TabbyAPI's own `cu13` extra (PyTorch 2.11.0 + CUDA 13.0 and
-   the official ExLlamaV3 v1.6.1 wheel), resolved and hashed in
+   the official ExLlamaV3 v1.6.7 wheel), resolved and hashed in
    `requirements/cu13-python312.lock`, synced into `tabbyAPI/venv`.
 4. Model weights are downloaded from Hugging Face at an immutable commit, never a moving
    branch head.
@@ -241,6 +241,14 @@ literals via `ast.literal_eval`. Incompatible values stay as text. Unknown param
 retain JSON decoding and also recognize Python booleans and `None`. Streaming and
 non-streaming requests use the same conversion.
 
+Upstream TabbyAPI now has a narrower version of this: it keeps `string` parameters
+as strings and streams `tool_calls` argument deltas while the call is written. It
+still turns a declared boolean written as `False` into the string `"False"`, ignores
+lists of types, and strips all surrounding whitespace from strings, which breaks
+indented code in a file-content argument. The patch extends upstream's
+coercion and delta streamer, so streamed fragments stay byte-identical to the
+end-of-stream parse.
+
 CPU tests verify parser behavior; host installation, model load and inference remain
 separate checks. For live verification on an authorized host, declare an `unlock`
 boolean tool parameter and prompt "Lock the driver door". Check that the returned
@@ -249,7 +257,11 @@ arguments contain `"unlock": false` as a JSON boolean in both response modes.
 ## Prometheus metrics
 
 The metrics patch adds `GET /metrics` on the same host and port as the API, outside
-`/v1`. When authentication is enabled it requires the API key, like every other route:
+`/v1`. When authentication is enabled it requires the API key, like every other route.
+Upstream TabbyAPI now ships its own opt-in, llama.cpp-style exporter at the same path
+(`network.enable_metrics`, `tabbyapi:` prefixed names). The patch registers this
+project's route first, so `/metrics` always serves the contract below whatever
+`enable_metrics` is set to:
 
 ```sh
 curl -fsS -H "Authorization: Bearer $KEY" http://127.0.0.1:8080/metrics

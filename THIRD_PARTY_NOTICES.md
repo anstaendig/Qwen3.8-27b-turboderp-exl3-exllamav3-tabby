@@ -18,10 +18,10 @@ AGPL's source-offer obligations apply to that modified server.
 ## TabbyAPI
 
 The `tabbyAPI/` submodule pins upstream TabbyAPI at
-[`a3fed43efae3b18ec6181618d6a4a66153a9d14e`](https://github.com/theroyallab/tabbyAPI/tree/a3fed43efae3b18ec6181618d6a4a66153a9d14e).
+[`47281587fafbd69e50aaf77c7626f390811126b6`](https://github.com/theroyallab/tabbyAPI/tree/47281587fafbd69e50aaf77c7626f390811126b6).
 It is not vendored here; `git submodule update` fetches it from upstream.
 TabbyAPI is licensed under AGPL-3.0; see
-[its license](https://github.com/theroyallab/tabbyAPI/blob/a3fed43efae3b18ec6181618d6a4a66153a9d14e/LICENSE).
+[its license](https://github.com/theroyallab/tabbyAPI/blob/47281587fafbd69e50aaf77c7626f390811126b6/LICENSE).
 
 ## Prometheus Python client
 
@@ -30,11 +30,11 @@ The metrics patch pins `prometheus-client==0.26.0`, licensed under
 
 ## ExLlamaV3
 
-TabbyAPI's `cu13` dependency selects the official ExLlamaV3 v1.6.1
+TabbyAPI's `cu13` dependency selects the official ExLlamaV3 v1.6.7
 `cu132.torch2.11.0` wheel alongside PyTorch 2.11.0 `cu130`. Its upstream source is
-[`f45b84512ba65bca77f7d394399d4b68821fc71b`](https://github.com/turboderp-org/exllamav3/tree/f45b84512ba65bca77f7d394399d4b68821fc71b).
+[`8c593e4e5c88da76a4aaf8f1b1838bb7c1fce4e0`](https://github.com/turboderp-org/exllamav3/tree/8c593e4e5c88da76a4aaf8f1b1838bb7c1fce4e0).
 ExLlamaV3 is MIT-licensed and is not patched here; see the
-[upstream license](https://github.com/turboderp-org/exllamav3/blob/f45b84512ba65bca77f7d394399d4b68821fc71b/LICENSE).
+[upstream license](https://github.com/turboderp-org/exllamav3/blob/8c593e4e5c88da76a4aaf8f1b1838bb7c1fce4e0/LICENSE).
 
 ## Model weights
 

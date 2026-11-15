@@ -5,7 +5,8 @@ import json
 import traceback
 from pathlib import Path
 from types import SimpleNamespace
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import Callable, Collection, List, Optional
 
 import pytest
 
@@ -20,9 +21,12 @@ def test_rejected_constraint_never_becomes_an_empty_filter_list(kind, backend_re
     spec.loader.exec_module(errors)
     tree = ast.parse((TABBY / "backends/exllamav3/grammar.py").read_text())
     tree.body = [n for n in tree.body if not isinstance(n, (ast.Import, ast.ImportFrom))]
-    def failing_filter(*args, **kwargs):
-        raise RuntimeError("compile failed")
+    class failing_filter:
+        # A class, because upstream subclasses LLGuidanceFilter for gated filters.
+        def __init__(self, *args, **kwargs):
+            raise RuntimeError("compile failed")
     namespace = dict(json=json, traceback=traceback, List=List, Optional=Optional,
+                     dataclass=dataclass, Callable=Callable, Collection=Collection, FJ_PASS=object(),
                      Filter=object, Tokenizer=object, LLGuidanceFilter=failing_filter,
                      GrammarParseError=errors.GrammarParseError,
                      xlogger=SimpleNamespace(error=lambda *a: None, debug=lambda *a: None))
